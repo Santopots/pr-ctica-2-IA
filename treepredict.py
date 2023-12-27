@@ -123,13 +123,21 @@ def divideset(part: Data, column: int, value) -> Tuple[Data, Data]:
 
 
 class DecisionNode:
-    def __init__(self,
-                 question,
-                 true_branch,
-                 false_branch):
-        self.question = question
-        self.true_branch = true_branch
-        self.false_branch = false_branch
+        def __init__(self, col: object = -1, value: object = None, results: object = None, tb: object = None, fb: object = None) -> object:
+            """
+            Initialize a Decision Node.
+
+            :param col: the column index of the criterion to be tested
+            :param value: the value that the column must match to get a true result
+            :param results: stores a dictionary of results for a leaf node (None for decision nodes)
+            :param tb: true branch (DecisionNode that represents the data where the condition is true)
+            :param fb: false branch (DecisionNode that represents the data where the condition is false)
+            """
+            self.col = col
+            self.value = value
+            self.results = results  # None for decision nodes
+            self.tb = tb  # true branch
+            self.fb = fb  # false branch
 
 
 def buildtree(self, part: Data, scoref=entropy, beta=0):
@@ -175,15 +183,81 @@ def buildtree(self, part: Data, scoref=entropy, beta=0):
     else:
         return DecisionNode()
 
-def iterative_buildtree(part: Data, scoref=entropy, beta=0):
-    """
-    t10: Define the iterative version of the function buildtree
-    """
-    raise NotImplementedError
+
+def iterative_buildtree(part, scoref=entropy, beta=0):
+    # Initialize the stack with the initial dataset and a dummy parent node
+    stack = [(part, None, None)]
+
+    # The root node will be set once the first split is made
+    root = None
+
+    while stack:
+        # Pop a state off the stack
+        part, parent, is_true_branch = stack.pop()
+
+        if len(part) == 0: continue  # Skip empty subsets
+
+        current_score = scoref(part)
+
+        best_gain = 0
+        best_criteria = None
+        best_sets = None
+
+        column_count = len(part[0]) - 1  # count of attributes/columns
+        for col in range(0, column_count):
+            # Generate the list of different values in this column
+            column_values = set(row[col] for row in part)
+
+            # Now try dividing the rows up for each value in this column
+            for value in column_values:
+                set1, set2 = divideset(part, col, value)
+
+                # Information gain
+                p = float(len(set1)) / len(part)
+                gain = current_score - p * scoref(set1) - (1 - p) * scoref(set2)
+                if gain > best_gain and len(set1) > 0 and len(set2) > 0:
+                    best_gain = gain
+                    best_criteria = (col, value)
+                    best_sets = (set1, set2)
+
+        # Create subbranches or leaf nodes
+        if best_gain > beta and best_sets:
+            trueBranch = DecisionNode(col=best_criteria[0], value=best_criteria[1])
+            falseBranch = DecisionNode(col=best_criteria[0], value=best_criteria[1])
+            if parent:
+                # Attach the new nodes to the parent
+                if is_true_branch:
+                    parent.tb = trueBranch
+                else:
+                    parent.fb = falseBranch
+            else:
+                # If this is the first split, set the root
+                root = trueBranch
+
+            # Push the subsets back onto the stack to continue processing
+            stack.append((best_sets[0], trueBranch, True))
+            stack.append((best_sets[1], falseBranch, False))
+        else:
+            leaf_node = DecisionNode(results=unique_counts(part))
+            if parent:
+                # Attach the leaf node to the parent
+                if is_true_branch:
+                    parent.tb = leaf_node
+                else:
+                    parent.fb = leaf_node
+            else:
+                # If this is the first node and no split is made, it's the root
+                root = leaf_node
+
+    return root
 
 
 def classify(tree, values):
-    raise NotImplementedError
+    """Once we have the tree we will be able to classify new data using it.
+   Implement the function classify(tree, row)
+    that returns the label predicted for row.
+     The criterion to assign the label in leaves that have multiple labels must
+     be justified in the report."""
 
 
 def print_tree(tree, headers=None, indent=""):
