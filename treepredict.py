@@ -111,12 +111,15 @@ def divideset(part: Data, column: int, value) -> Tuple[Data, Data]:
     t7: Divide a set on a specific column. Can handle
     numeric or categorical values
     """
-    if isinstance(value, (int, float)):
-        split_function = _split_numeric
+    split_function = None
+    if isinstance(value, int) or isinstance(value, float):  # for numerical values
+        split_function = lambda row: row[column] >= value
     else:
-        split_function = _split_categorical
-    # ...
-    return (set1, set2)
+        split_function = lambda row: row[column] == value
+
+    set1 = [row for row in part if split_function(row)]
+    set2 = [row for row in part if not split_function(row)]
+    return set1, set2
 
 
 class DecisionNode:
@@ -144,6 +147,33 @@ def buildtree(self, part: Data, scoref=entropy, beta=0):
     best_criteria = None
     best_sets = None
 
+    column_count = len(part[0]) - 1  # count of attributes/columns
+    for col in range(0, column_count):
+        # Generate the list of different values in this column
+        column_values = {}
+        for row in part:
+            column_values[row[col]] = 1
+
+        # Now try dividing the rows up for each value in this column
+        for value in column_values.keys():
+            (set1, set2) = divideset(part, col, value)  # Defined function to divide the dataset
+
+            # Information gain
+            p = float(len(set1)) / len(part)
+            gain = current_score - p * scoref(set1) - (1 - p) * scoref(set2)
+            if gain > best_gain and len(set1) > 0 and len(set2) > 0:
+                best_gain = gain
+                best_criteria = (col, value)
+                best_sets = (set1, set2)
+
+    # Create the subbranches
+    if best_gain > beta:
+        trueBranch = buildtree(best_sets[0], scoref, beta)
+        falseBranch = buildtree(best_sets[1], scoref, beta)
+        return DecisionNode(col=best_criteria[0], value=best_criteria[1],
+                            tb=trueBranch, fb=falseBranch)
+    else:
+        return DecisionNode()
 
 def iterative_buildtree(part: Data, scoref=entropy, beta=0):
     """
@@ -202,9 +232,9 @@ def main():
     except IndexError:
         filename = "iris.csv"
 
-    # header, data = read(filename)
-    # print_data(header, data)
-    # print(unique_counts(data))
+    header, data = read(filename)
+    print_data(header, data)
+    print(unique_counts(data))
 
     # print(gini_impurity(data))
     # print(gini_impurity([]))
