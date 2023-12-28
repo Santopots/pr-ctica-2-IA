@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import random
 import sys
 import collections
 from math import log2
@@ -33,13 +34,6 @@ def _parse_value(v: str):
             return float(v)
     except ValueError:
         return v
-    # try:
-    #     return float(v)
-    # except ValueError:
-    #     try:
-    #         return int(v)
-    #     except ValueError:
-    #         return v
 
 
 def unique_counts(part: Data):
@@ -49,20 +43,6 @@ def unique_counts(part: Data):
     result)
     """
     return dict(collections.Counter(row[-1] for row in part))
-
-    # results = collections.Counter()
-    # for row in part:
-    #     c = row[-1]
-    #     results[c] += 1
-    # return dict(results)
-
-    # results = {}
-    # for row in part:
-    #     c = row[-1]
-    #     if c not in results:
-    #         results[c] = 0
-    #     results[c] += 1
-    # return results
 
 
 def gini_impurity(part: Data):
@@ -103,7 +83,7 @@ def _split_numeric(prototype: List, column: int, value):
 
 
 def _split_categorical(prototype: List, column: int, value: str):
-    raise NotImplementedError
+    return prototype[column] == value
 
 
 def divideset(part: Data, column: int, value) -> Tuple[Data, Data]:
@@ -111,33 +91,42 @@ def divideset(part: Data, column: int, value) -> Tuple[Data, Data]:
     t7: Divide a set on a specific column. Can handle
     numeric or categorical values
     """
-    split_function = None
-    if isinstance(value, int) or isinstance(value, float):  # for numerical values
-        split_function = lambda row: row[column] >= value
+    if isinstance(value, (int, float)):
+        split_function = _split_numeric
     else:
-        split_function = lambda row: row[column] == value
-
-    set1 = [row for row in part if split_function(row)]
-    set2 = [row for row in part if not split_function(row)]
-    return set1, set2
+        split_function = _split_categorical
+        # Split "part" according "split_function"
+    set1, set2 = [], []
+    for row in part:  # For each row in the dataset
+        if split_function(row, column, value):  # If it matches the criteria
+            set1.append(row)  # Add it to the first set
+        else:
+            set2.append(row)  # Add it to the second set
+    return (set1, set2)  # Return both sets
 
 
 class DecisionNode:
-        def __init__(self, col: object = -1, value: object = None, results: object = None, tb: object = None, fb: object = None) -> object:
-            """
-            Initialize a Decision Node.
-
-            :param col: the column index of the criterion to be tested
-            :param value: the value that the column must match to get a true result
-            :param results: stores a dictionary of results for a leaf node (None for decision nodes)
-            :param tb: true branch (DecisionNode that represents the data where the condition is true)
-            :param fb: false branch (DecisionNode that represents the data where the condition is false)
-            """
-            self.col = col
-            self.value = value
-            self.results = results  # None for decision nodes
-            self.tb = tb  # true branch
-            self.fb = fb  # false branch
+    def __init__(self, col: object = -1, value: object = None, results: object = None, tb: object = None,
+                 fb: object = None,
+                 split_quality: object = 0) -> object:
+        """
+        t8: We have 5 member variables:
+        - col is the column index which represents the
+          attribute we use to split the node
+        - value corresponds to the answer that satisfies
+          the question
+        - tb and fb are internal nodes representing the
+          positive and negative answers, respectively
+        - results is a dictionary that stores the result
+          for this branch. Is None except for the leaves
+          @rtype: object
+        """
+        self.col = col
+        self.value = value
+        self.results = results
+        self.tb = tb
+        self.fb = fb
+        self.split_quality = split_quality
 
 
 def buildtree(self, part: Data, scoref=entropy, beta=0):
@@ -149,40 +138,68 @@ def buildtree(self, part: Data, scoref=entropy, beta=0):
     if len(part) == 0: return DecisionNode()  # cas base
     current_score = scoref(part)
 
-    # variables
+    if current_score == 0:
+        return DecisionNode(unique_counts(part), 0) #pure node
 
     best_gain = 0
     best_criteria = None
     best_sets = None
-
     column_count = len(part[0]) - 1  # count of attributes/columns
+
     for col in range(0, column_count):
-        # Generate the list of different values in this column
         column_values = {}
         for row in part:
             column_values[row[col]] = 1
 
-        # Now try dividing the rows up for each value in this column
         for value in column_values.keys():
-            (set1, set2) = divideset(part, col, value)  # Defined function to divide the dataset
+            (set1, set2) = divideset(part, col, value)
 
-            # Information gain
             p = float(len(set1)) / len(part)
             gain = current_score - p * scoref(set1) - (1 - p) * scoref(set2)
             if gain > best_gain and len(set1) > 0 and len(set2) > 0:
                 best_gain = gain
                 best_criteria = (col, value)
                 best_sets = (set1, set2)
-
-    # Create the subbranches
     if best_gain > beta:
-        trueBranch = buildtree(best_sets[0], scoref, beta)
-        falseBranch = buildtree(best_sets[1], scoref, beta)
         return DecisionNode(col=best_criteria[0], value=best_criteria[1],
-                            tb=trueBranch, fb=falseBranch)
+                            tb=buildtree(best_sets[0]), fb=buildtree(best_sets[1]), split_quality=best_gain)
     else:
+        return DecisionNode(results=unique_counts(part), split_quality=best_gain)
+
+def buildtree2(part: Data, scoref=entropy, beta=0): #Recursive version
+    """
+    t9: Define a new function buildtree. This is a recursive function
+    that builds a decision tree using any of the impurity measures we
+    have seen. The stop criterion is max_s\Delta i(s,t) < \beta
+    """
+    if len(part) == 0:
         return DecisionNode()
 
+    current_score = scoref(part)
+    if current_score == 0:
+        return DecisionNode(results=unique_counts(part), split_quality=0) # Pure node
+
+    best_gain = 0.0
+    best_criteria = None
+    best_sets = None
+    column_count = len(part[0]) - 1 # -1 because the last column is the label
+    for col in range(0, column_count): # Search the best parameters to use
+        column_values = {}
+        for row in part:
+            column_values[row[col]] = 1
+        for value in column_values.keys():
+            (set1, set2) = divideset(part, col, value)
+            p = float(len(set1)) / len(part)
+            gain = current_score - p * scoref(set1) - (1 - p) * scoref(set2)
+            if gain > best_gain and len(set1) > 0 and len(set2) > 0:
+                best_gain = gain
+                best_criteria = (col, value)
+                best_sets = (set1, set2)
+    if best_gain > beta:
+        return DecisionNode(col=best_criteria[0], value=best_criteria[1],
+                            tb=buildtree(best_sets[0]), fb=buildtree(best_sets[1]), split_quality=best_gain)
+    else:
+        return DecisionNode(results=unique_counts(part), split_quality=best_gain)
 
 def iterative_buildtree(part, scoref=entropy, beta=0):
     # Initialize the stack with the initial dataset and a dummy parent node
@@ -252,12 +269,27 @@ def iterative_buildtree(part, scoref=entropy, beta=0):
     return root
 
 
-def classify(tree, values):
+def classify(tree, row):
     """Once we have the tree we will be able to classify new data using it.
    Implement the function classify(tree, row)
     that returns the label predicted for row.
      The criterion to assign the label in leaves that have multiple labels must
      be justified in the report."""
+    if tree.results is not None:
+        maximum = max(tree.results.values())
+        labels = [k for k, v in tree.results.items() if v == maximum]
+        return random.choice(labels)
+    if isinstance(tree.value, (int, float)):
+        if _split_numeric(row, tree.col, tree.value):
+            return classify(tree.tb, row)
+        else:
+            return classify(tree.fb, row)
+    else:
+        if _split_categorical(row, tree.col, tree.value):
+            return classify(tree.tb, row)
+        else:
+            return classify(tree.fb, row)
+
 
 
 def print_tree(tree, headers=None, indent=""):
@@ -319,7 +351,7 @@ def main():
     # print(entropy([data[0]]))
 
     headers, data = read(filename)
-    tree = buildtree(data)
+    tree = buildtree2(data)
     print_tree(tree, headers)
 
 
